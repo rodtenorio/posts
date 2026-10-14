@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Making your application resilient with Spring Retry</title>
+<style>
+body { max-width: 800px; margin: 40px auto; padding: 0 20px; color: #1f2328;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px; line-height: 1.6; }
+h1, h2, h3, h4, h5, h6 { margin: 1.4em 0 0.5em; font-weight: 600; line-height: 1.25; }
+h1 { font-size: 1.8em; padding-bottom: 0.3em; border-bottom: 1px solid #d1d9e0; }
+h2 { font-size: 1.4em; padding-bottom: 0.3em; border-bottom: 1px solid #d1d9e0; }
+h3 { font-size: 1.2em; }
+p, ul, ol, blockquote { margin: 0 0 14px; }
+blockquote { padding: 0 1em; color: #59636e; border-left: 4px solid #d1d9e0; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em;
+  background: #f0f2f5; border-radius: 5px; padding: 0.15em 0.4em; }
+pre { background: #f6f8fa; border-radius: 8px; padding: 14px 16px; overflow: auto; }
+pre code { background: none; padding: 0; font-size: 0.86em; line-height: 1.5; }
+table { border-collapse: collapse; }
+th, td { border: 1px solid #d1d9e0; padding: 6px 12px; }
+th { background: #f6f8fa; }
+img { max-width: 100%; }
+hr { border: 0; border-top: 2px solid #d1d9e0; margin: 22px 0; }
+a { color: #0969da; }
+.hljs-comment, .hljs-quote { color: #59636e; }
+.hljs-keyword, .hljs-selector-tag, .hljs-type, .hljs-doctag, .hljs-meta { color: #cf222e; }
+.hljs-string, .hljs-regexp, .hljs-attr { color: #0a3069; }
+.hljs-number, .hljs-literal, .hljs-symbol, .hljs-variable, .hljs-template-variable { color: #0550ae; }
+.hljs-title, .hljs-function, .hljs-section, .hljs-name { color: #8250df; }
+.hljs-built_in, .hljs-attribute { color: #953800; }
+</style>
+</head>
+<body>
+<h1 id="spring-retry">Making your application resilient with Spring Retry</h1>
+<h2 id="1-overview">1. Overview</h2>
+<p>Spring Retry provides the ability to automatically re-invoke a failed operation.</p>
+<p>We’ll&nbsp;explore the various ways to utilize&nbsp;<a href="https://docs.spring.io/spring-framework/reference/core/resilience.html">Spring Retry</a>, using&nbsp;annotations.</p>
+<h2 id="2-setting-up-maven-dependencies">2. Setting up Maven Dependencies</h2>
+<p><strong>Add the <em>spring-retry</em> dependency</strong> into our <em>build.gradle</em> file:</p>
+<pre><code class="hljs language-json">dependencies <span class="hljs-punctuation">{</span>
+    implementation <span class="hljs-string">'org.springframework.retry:spring-retry:2.0.13'</span>
+    implementation <span class="hljs-string">'org.springframework.boot:spring-boot-starter-aspectj'</span>
+<span class="hljs-punctuation">}</span>
+</code></pre>
+<p>Further, the <em>spring-boot-starter-aspectj</em> dependency is crucial because:</p>
+<ul>
+<li>It automatically configures Spring Aspect-Oriented Programming (AOP).</li>
+<li>The <em>@ConcurrencyLimit</em> annotation relies on AOP proxies to intercept method calls and apply the throttling logic.</li>
+</ul>
+<p>Check for the latest versions of the <a href="https://central.sonatype.com/artifact/org.springframework.retry/spring-retry">spring-retry</a> and <a href="https://central.sonatype.com/artifact/org.springframework.boot/spring-boot-starter-aspectj">spring-boot-starter-aspectj</a>.</p>
+<h2 id="3-enabling-it">3. Enabling it</h2>
+<p>To enable Spring Retry in an application, <strong>we need to add the <em>@EnableRetry</em> annotation</strong> to our <em>@Configuration</em> class:</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Configuration</span>
+<span class="hljs-meta">@EnableRetry</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">MyConfig</span> { ... }
+</code></pre>
+<h2 id="4-using-it">4. Using it</h2>
+<h3 id="41-retryable-without-recovery">4.1. <em>@Retryable</em> Without Recovery</h3>
+<p><strong>We can use the <em>@Retryable</em> annotation to add retry functionality to methods</strong>:</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">MyService</span> {
+
+    <span class="hljs-meta">@Retryable</span> a
+    <span class="hljs-keyword">void</span> <span class="hljs-title function_">retryService</span><span class="hljs-params">()</span>;
+}
+</code></pre>
+<p>Since we haven’t specified any exceptions here, it attempts a retry for all the exceptions. Per <em>@Retryable</em>‘s default behavior, it <strong>may retry up&nbsp;to two times, with a delay of one second between retries</strong>. Further, the maximum number of attempts is <em>3</em>, which includes the initial failed call and two subsequent retries. If the maximum number of attempts is reached and there’s still an exception, it throws the <em>ExhaustedRetryException</em>.</p>
+<h3 id="42-retryable-and-recover">4.2. <em>@Retryable</em> and** **<em>@Recover</em></h3>
+<p><strong>Let’s now add a recovery method using the <em>@Recover</em> annotation</strong>:</p>
+<pre><code class="hljs language-java"><span class="hljs-meta">@Service</span>
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">interface</span> <span class="hljs-title class_">MyService</span> {
+
+    <span class="hljs-meta">@Retryable(retryFor = SQLException.class)</span>
+    <span class="hljs-keyword">void</span> <span class="hljs-title function_">retryServiceWithRecovery</span><span class="hljs-params">(String sql)</span> <span class="hljs-keyword">throws</span> SQLException;
+
+    <span class="hljs-meta">@Recover</span>
+    <span class="hljs-keyword">void</span> <span class="hljs-title function_">recover</span><span class="hljs-params">(SQLException e, String sql)</span>;
+}
+</code></pre>
+<p>Here, it attempts a retry when <em>SQLException</em> is thrown. <strong>The <em>@Recover</em> annotation defines a separate recovery method when a <em>@Retryable</em> method fails with a specified exception</strong>.</p>
+<p>Consequently, if the <em>retryServiceWithRecovery</em> method keeps throwing <em>SqlException</em> after three attempts, it calls the <em>recover()</em> method.</p>
+<p>The recovery handler should have the first parameter of type <em>Throwable</em> (optional) and the same return type. The remaining arguments are populated from the argument list of the failed method in the same order.</p>
+<h2 id="5-using-listeners">5. Using Listeners</h2>
+<p>Listeners provide additional callbacks upon retries. We can also utilize these for various cross-cutting concerns across different retry attempts.</p>
+<h3 id="61-adding-callbacks">6.1. Adding Callbacks</h3>
+<p>The <em>RetryListener</em> interface provides the callbacks:</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">DefaultListenerSupport</span> <span class="hljs-keyword">extends</span> <span class="hljs-title class_">RetryListenerSupport</span> {
+    
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> &lt;T, E <span class="hljs-keyword">extends</span> <span class="hljs-title class_">Throwable</span>&gt; <span class="hljs-keyword">void</span> <span class="hljs-title function_">close</span><span class="hljs-params">(RetryContext context,
+      RetryCallback&lt;T, E&gt; callback, Throwable throwable)</span> {
+        logger.info(<span class="hljs-string">"onClose"</span>);
+        <span class="hljs-comment">//...</span>
+        <span class="hljs-built_in">super</span>.close(context, callback, throwable);
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> &lt;T, E <span class="hljs-keyword">extends</span> <span class="hljs-title class_">Throwable</span>&gt; <span class="hljs-keyword">void</span> <span class="hljs-title function_">onError</span><span class="hljs-params">(RetryContext context,
+      RetryCallback&lt;T, E&gt; callback, Throwable throwable)</span> {
+        logger.info(<span class="hljs-string">"onError"</span>); 
+        <span class="hljs-comment">//...</span>
+        <span class="hljs-built_in">super</span>.onError(context, callback, throwable);
+    }
+
+    <span class="hljs-meta">@Override</span>
+    <span class="hljs-keyword">public</span> &lt;T, E <span class="hljs-keyword">extends</span> <span class="hljs-title class_">Throwable</span>&gt; <span class="hljs-type">boolean</span> <span class="hljs-title function_">open</span><span class="hljs-params">(RetryContext context,
+      RetryCallback&lt;T, E&gt; callback)</span> {
+        logger.info(<span class="hljs-string">"onOpen"</span>);
+        <span class="hljs-comment">//...</span>
+        <span class="hljs-keyword">return</span> <span class="hljs-built_in">super</span>.open(context, callback);
+    }
+}
+</code></pre>
+<p>The <em>open</em> and <em>close</em> callbacks come before and after the entire retry, while <em>onError</em> applies to the individual <em>RetryCallback</em> calls.</p>
+<h3 id="62-registering-the-listener">6.2. Registering the Listener</h3>
+<p>We registered our listener <em>DefaultListenerSupport</em> to our <em>RetryTemplate</em> bean using the <em>withListener(new DefaultListenerSupport())</em> method earlier.</p>
+<h2 id="7-conclusion">7. <strong>Conclusion</strong></h2>
+<p>We saw how to use Spring Retry using annotations and how it can make a code resilient to failures or unforseen outages.</p>
+</body>
+</html>
