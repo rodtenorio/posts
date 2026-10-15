@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Retry Logic Implementations with Sprint Reactive</title>
+<style>
+body { max-width: 800px; margin: 40px auto; padding: 0 20px; color: #1f2328;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px; line-height: 1.6; }
+h1, h2, h3, h4, h5, h6 { margin: 1.4em 0 0.5em; font-weight: 600; line-height: 1.25; }
+h1 { font-size: 1.8em; padding-bottom: 0.3em; border-bottom: 1px solid #d1d9e0; }
+h2 { font-size: 1.4em; padding-bottom: 0.3em; border-bottom: 1px solid #d1d9e0; }
+h3 { font-size: 1.2em; }
+p, ul, ol, blockquote { margin: 0 0 14px; }
+blockquote { padding: 0 1em; color: #59636e; border-left: 4px solid #d1d9e0; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em;
+  background: #f0f2f5; border-radius: 5px; padding: 0.15em 0.4em; }
+pre { background: #f6f8fa; border-radius: 8px; padding: 14px 16px; overflow: auto; }
+pre code { background: none; padding: 0; font-size: 0.86em; line-height: 1.5; }
+table { border-collapse: collapse; }
+th, td { border: 1px solid #d1d9e0; padding: 6px 12px; }
+th { background: #f6f8fa; }
+img { max-width: 100%; }
+hr { border: 0; border-top: 2px solid #d1d9e0; margin: 22px 0; }
+a { color: #0969da; }
+.hljs-comment, .hljs-quote { color: #59636e; }
+.hljs-keyword, .hljs-selector-tag, .hljs-type, .hljs-doctag, .hljs-meta { color: #cf222e; }
+.hljs-string, .hljs-regexp, .hljs-attr { color: #0a3069; }
+.hljs-number, .hljs-literal, .hljs-symbol, .hljs-variable, .hljs-template-variable { color: #0550ae; }
+.hljs-title, .hljs-function, .hljs-section, .hljs-name { color: #8250df; }
+.hljs-built_in, .hljs-attribute { color: #953800; }
+</style>
+</head>
+<body>
+<img src="img/spring-reactive-retry-logic.jpg" alt="Spring Reactive Retry Logic" style="width: 100%; height: auto; margin-bottom: 20px;">
+<h1 id="retry-logic-implementations-in-java">Retry Logic Implementations with Sprint Reactive</h1>
+<p>This document contains retry logic strategy using Spring Reactive (Project Reactor).</p>
+<hr>
+<h2 id="spring-reactive-retry-implementation">Spring Reactive Retry Implementation</h2>
+<p>Built-in native retry mechanisms for <strong>Spring WebFlux / Project Reactor</strong> using the fluent <code>Retry</code> API on <code>Mono</code> or <code>Flux</code>.</p>
+<pre><code class="hljs language-java"><span class="hljs-keyword">import</span> reactor.core.publisher.Mono;
+<span class="hljs-keyword">import</span> reactor.util.retry.Retry;
+<span class="hljs-keyword">import</span> java.time.Duration;
+
+<span class="hljs-keyword">public</span> <span class="hljs-keyword">class</span> <span class="hljs-title class_">ReactiveRetryService</span> {
+
+    <span class="hljs-comment">// 1. Exponential Backoff with Max Attempts</span>
+    <span class="hljs-keyword">public</span> Mono&lt;String&gt; <span class="hljs-title function_">getDataWithBackoff</span><span class="hljs-params">(Mono&lt;String&gt; source)</span> {
+        <span class="hljs-keyword">return</span> source
+            .retryWhen(Retry.backoff(<span class="hljs-number">3</span>, Duration.ofMillis(<span class="hljs-number">500</span>))
+                .doBeforeRetry(retrySignal -&gt; 
+                    System.out.printf(<span class="hljs-string">"Retrying attempt %d due to: %s%n"</span>, 
+                        retrySignal.totalRetries() + <span class="hljs-number">1</span>, 
+                        retrySignal.failure().getMessage())
+                )
+            );
+    }
+
+    <span class="hljs-comment">// 2. Conditional Retry (Only retry for specific exceptions)</span>
+    <span class="hljs-keyword">public</span> Mono&lt;String&gt; <span class="hljs-title function_">getDataOnlyForNetworkErrors</span><span class="hljs-params">(Mono&lt;String&gt; source)</span> {
+        <span class="hljs-keyword">return</span> source
+            .retryWhen(Retry.fixedDelay(<span class="hljs-number">3</span>, Duration.ofMillis(<span class="hljs-number">200</span>))
+                .filter(throwable -&gt; throwable <span class="hljs-keyword">instanceof</span> IllegalStateException) <span class="hljs-comment">// Only retry if true</span>
+                .onRetryExhaustedThrow((retryBackoffSpec, retrySignal) -&gt; {
+                    <span class="hljs-keyword">return</span> <span class="hljs-keyword">new</span> <span class="hljs-title class_">RuntimeException</span>(<span class="hljs-string">"Retries exhausted!"</span>, retrySignal.failure());
+                })
+            );
+    }
+}
+</code></pre>
+<h3 id="key-reactor-mechanisms">Key Reactor Mechanisms</h3>
+<ul>
+<li><strong><code>Retry.backoff(maxAttempts, minBackoff)</code></strong>: Automatically applies an exponential backoff algorithm with optional jitter.</li>
+<li><strong><code>Retry.fixedDelay(maxAttempts, delay)</code></strong>: Retries the upstream publisher at a constant interval.</li>
+<li><strong><code>.filter(Predicate)</code></strong>: Ensures that system errors fail immediately without consuming retry attempts, targeting only transient errors.</li>
+<li><strong><code>.doBeforeRetry()</code></strong>: A side-effect operator perfect for logging metrics, checking statuses, or counting failures.</li>
+</ul>
+<hr>
+<h2 id="conclusion">Conclusion</h2>
+<p>Project Reactor’s <code>Retry</code> API gives Spring WebFlux applications a concise, non-blocking way to handle transient failures. Prefer <code>Retry.backoff</code> when load and contention matter, and <code>Retry.fixedDelay</code> when a steady interval is enough. Always filter retries to transient errors so permanent failures fail fast, and use <code>doBeforeRetry</code> (or similar hooks) for observability. Used this way, retries improve resilience without masking real defects or amplifying load.</p>
+</body>
+</html>
